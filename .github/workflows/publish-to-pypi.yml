@@ -6,7 +6,47 @@ on:
       - published
 
 jobs:
+  rollouts-start:
+    runs-on: ubuntu-latest
+    outputs:
+      deployment: ${{ steps.report.outputs.deployment }}
+      already_completed: ${{ steps.report.outputs.already_completed }}
+    steps:
+      - name: Checkout Rollouts reporter
+        uses: actions/checkout@v4
+      - name: Report Rollouts deployment start
+        id: report
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CHANGE_MONITOR_ENV: "pypi"
+          CHANGE_MONITOR_SERVICE: "universal-silabs-flasher"
+          CHANGE_MONITOR_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          CHANGE_MONITOR_ACTOR: "github-actions:${{ github.workflow }}:shared-build-and-publish:universal-silabs-flasher:pypi"
+        run: |
+          export DEPLOY_VERSION="$(git rev-parse HEAD)"
+          bash .github/scripts/rollouts-reporter.sh bootstrap
+          bash .github/scripts/rollouts-reporter.sh start
   shared-build-and-publish:
+    needs: rollouts-start
     uses: zigpy/workflows/.github/workflows/publish-to-pypi.yml@main
     secrets:
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+
+  rollouts-finish:
+    needs: [rollouts-start, shared-build-and-publish]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Rollouts reporter
+        uses: actions/checkout@v4
+      - name: Report Rollouts deployment finish
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CHANGE_MONITOR_ENV: "pypi"
+          CHANGE_MONITOR_SERVICE: "universal-silabs-flasher"
+          CHANGE_MONITOR_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          CHANGE_MONITOR_ACTOR: "github-actions:${{ github.workflow }}:shared-build-and-publish:universal-silabs-flasher:pypi"
+          CHANGE_MONITOR_OUTCOME: ${{ needs.shared-build-and-publish.result }}
+          ROLLOUTS_DEPLOYMENT: ${{ needs.rollouts-start.outputs.deployment }}
+          ROLLOUTS_ALREADY_COMPLETED: ${{ needs.rollouts-start.outputs.already_completed }}
+        run: bash .github/scripts/rollouts-reporter.sh finish
